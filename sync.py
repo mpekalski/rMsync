@@ -76,6 +76,7 @@ class Remarkable:
         create_dir_if_missing(os.path.join(self.main_directory,'rMTools'))
         create_dir_if_missing(self.sync_directory)
         create_dir_if_missing(self.temp_directory)
+        create_dir_if_missing(self.note_directory)
         create_dir_if_missing(self.tools_directory)
         git_clone(self.tools_directory, "lschwetlick", "maxio")
 
@@ -103,8 +104,17 @@ class Remarkable:
                                                     , self.remarkable_content, "*.pdf"))
         self.rm_backup_lines_list   = glob.glob(os.path.join(self.remarkable_backup_directory
                                                     , self.remarkable_content, "*.lines"))
-        self.rm_visible_names = subprocess.check_output("ssh remarkable cat /home/root/.local/share/remarkable/xochitl/*.metadata | grep visibleName", shell=True).decode('utf-8').replace('"visibleName":',"").split("\n")
-        self.rm_visible_names = [x.strip()[1:-1] for x in self.rm_visible_names  ]
+
+        # TODO: make ssh not only config dependent
+        self.rm_visible_names = (subprocess
+                                    .check_output("ssh remarkable cat {}/*.metadata | grep visibleName"
+                                                    .format(self.remarkable_directory)
+                                                  , shell=True)
+                                    .decode('utf-8')
+                                    .replace('"visibleName":',"")
+                                    .split("\n"))
+        
+        self.rm_visible_names = [ x.strip()[1:-1] for x in self.rm_visible_names  ]
         #self.rm_visible_names = [self.get_metadata(x,"pdf")[1]['visibleName']+".pdf" for x in self.rm_backup_pdf_list]
         # notesList=[ os.path.basename(f) for f in self.rm_backup_lines_list ] # in the loop we remove all that have an associated pdf
 
@@ -205,8 +215,8 @@ class Remarkable:
                 svgOut   = os.path.join(self.temp_directory, "note.svg")
 
                 mlog("Creating temporary directory")
-                mkdir_cmd = "mkdir " + os.path.join(self.temp_directory , "tmp")
-                subprocess.Popen(mkdir_cmd, shell=True).wait()
+                #mkdir_cmd = "mkdir " + os.path.join(self.temp_directory , "tmp")
+                #subprocess.Popen(mkdir_cmd, shell=True).wait()
 
                 mlog("Converting lines to svg")
                 convertlin_svg_cmd = "".join(["python3 ", self.conversion_script_notes
@@ -217,13 +227,15 @@ class Remarkable:
                 mlog("Converting svgs to pdf")
                 convert_svg2pdf_cmd = "".join(["convert -density 100 ", svgOut[:-4],"_*.svg"
                                              , " -transparent white "
-                                             , self.note_directory
-                                             , meta["visibleName"].replace(" ", "_")
-                                             , ".pdf"])
+                                             , os.path.join(self.note_directory
+                                                            , meta["visibleName"].replace(" ", "_")
+                                                            )
+                                            , ".pdf"
+                                            ])
                 subprocess.Popen(convert_svg2pdf_cmd, shell=True).wait()
 
-                mlog("Deleting temporary directory")
-                shutil.rmtree(self.temp_directory, ignore_errors=False, onerror=None)
+                #mlog("Deleting temporary directory")
+                #shutil.rmtree(self.temp_directory, ignore_errors=False, onerror=None)
         
         for i in range(0, len(self.rm_backup_pdf_list)):
             ref_nr_path = self.rm_backup_pdf_list[i][:-4]
