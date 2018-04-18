@@ -98,35 +98,42 @@ class Remarkable:
         subprocess.Popen(backup_cmd, shell=True).wait()
 
     def get_file_lists(self):
-        self.sync_files_list = glob.glob(os.path.join(self.sync_directory, "*.pdf"))
-        self.rm_pdf_list     = glob.glob(os.path.join(self.remarkable_backup_directory
+        self.sync_files_list        = glob.glob(os.path.join(self.sync_directory, "*.pdf"))
+        self.rm_backup_pdf_list     = glob.glob(os.path.join(self.remarkable_backup_directory
                                                     , self.remarkable_content, "*.pdf"))
-        self.rm_lines_list   = glob.glob(os.path.join(self.remarkable_backup_directory
+        self.rm_backup_lines_list   = glob.glob(os.path.join(self.remarkable_backup_directory
                                                     , self.remarkable_content, "*.lines"))
-        # notesList=[ os.path.basename(f) for f in self.rm_lines_list ] # in the loop we remove all that have an associated pdf
+        self.rm_visible_names = subprocess.check_output("ssh remarkable cat /home/root/.local/share/remarkable/xochitl/*.metadata | grep visibleName", shell=True).decode('utf-8').replace('"visibleName":',"").split("\n")
+        self.rm_visible_names = [x.strip()[1:-1] for x in self.rm_visible_names  ]
+        #self.rm_visible_names = [self.get_metadata(x,"pdf")[1]['visibleName']+".pdf" for x in self.rm_backup_pdf_list]
+        # notesList=[ os.path.basename(f) for f in self.rm_backup_lines_list ] # in the loop we remove all that have an associated pdf
 
     def upload(self):
         # we dont want to re-upload Notes
-        self.sync_files_list = [ x for x in self.sync_files_list if not "/Notes/" in x ]
-        # print("self.sync_files_list")
-        # print(self.sync_files_list)
+        self.sync_files_list = [ x for x in self.sync_files_list if not "/notes/" in x ]
+        #print("self.sync_files_list")
+        #print(self.sync_files_list)
 
         sync_names = [ os.path.basename(f) for f in self.sync_files_list ]
-        # we dont want to re-upload_fanno_lated pdfs
+        # we dont want to re-upload_annotated pdfs
         sync_names = [ x for x in sync_names if not "annot" in x ]
 
-        # print("sync_names")
-        # print(sync_names)
+        #print("sync_names")
+        #print(sync_names)
 
         # this gets elements that are in list 1 but not in list 2
-        upload_list = [x for x in sync_names if not x in self.pdf_names_on_rm]
-        # print("pdf_names_on_rm")
-        # print(pdf_names_on_rm)
+        #print("self.rm_backup_pdf_list")
+        #print(self.rm_backup_pdf_list)
+        
+        upload_list = [x for x in sync_names if not x in self.rm_visible_names]
+        #print("rm_visible_names")
+        #print(self.rm_visible_names)
+        #print("self.upload_list")
+        #print(upload_list)
         # print("upload_list")
         # print(upload_list)
-
         for i in range(0,len(upload_list)):
-            file_path = glob.glob(os.path.join(self.sync_directory, "*", upload_list[i]))[0]
+            file_path = glob.glob(os.path.join(self.sync_directory, upload_list[i]))[0]
             file_name = upload_list[i] if upload_list[i][-4:0]!="pdf" else upload_list[:-4]
         # ToDo
         # http://remarkablewiki.com/index.php?title=Methods_of_access
@@ -134,20 +141,29 @@ class Remarkable:
             upload_cmd = "".join(["curl 'http://10.11.99.1/upload' -H 'Origin: http://10.11.99.1' -H 'Accept: */*' -H 'Referer: http://10.11.99.1/' -H 'Connection: keep-alive' -F 'file=@", file_path, ";filename=", file_name,";type=application/pdf'"])
             subprocess.Popen(upload_cmd, shell=True).wait()
         #     print("upload "+ upload_list[i])
+    
+    def get_metadata(self, file_name, file_type = "pdf"):
+        type_ln = len(file_type)+1
+        #ref_nr = os.path.basename(file_name[:-type_ln])
+        ref_nr_path = file_name[:-type_ln]
+        # get metadata
+        meta = json.loads(open(ref_nr_path+".metadata").read())
+        return ref_nr_path, meta
 
     def annotated(self):
         # #Later ToDo: find standalone notes files and put those somewhere seperate
-        for i in range(0,len(self.rm_lines_list)):
+        for i in range(0,len(self.rm_backup_lines_list)):
             # get file reference number
-            ref_nr = os.path.basename(self.rm_lines_list[i][:-6])
-            ref_nr_path = self.rm_lines_list[i][:-6]
+            #ref_nr = os.path.basename(self.rm_backup_lines_list[i][:-6])
+            #ref_nr_path = self.rm_backup_lines_list[i][:-6]
 
             # get metadata
-            meta = json.loads(open(ref_nr_path+".metadata").read())
+            #meta = json.loads(open(ref_nr_path+".metadata").read())
+            ref_nr_path, meta = self.get_metadata(self.rm_backup_lines_list[i], "lines")
             # Make record of pdf files already on device
             # pdf_names_on_rm.append(meta["visibleName"]+".pdf")
             # Do we need to Copy this file from the rM to the computer?
-            AnnotPDF = True if ref_nr_path + ".pdf" in self.rm_pdf_list else False
+            AnnotPDF = True if ref_nr_path + ".pdf" in self.rm_backup_pdf_list else False
 
             if AnnotPDF:
                 mlog('dealing with annotated pdfs')
@@ -209,8 +225,8 @@ class Remarkable:
                 mlog("Deleting temporary directory")
                 shutil.rmtree(self.temp_directory, ignore_errors=False, onerror=None)
         
-        for i in range(0, len(self.rm_pdf_list)):
-            ref_nr_path = self.rm_pdf_list[i][:-4]
+        for i in range(0, len(self.rm_backup_pdf_list)):
+            ref_nr_path = self.rm_backup_pdf_list[i][:-4]
             # get meta Data
             meta = json.loads(open(ref_nr_path+".metadata").read())
             # Make record of pdf files already on device
