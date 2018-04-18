@@ -6,6 +6,7 @@ import json
 import subprocess
 # needs imagemagick, pdftk, cpdf, cairocffi, libffi-dev, python3-pypdf2
 
+# TODO: does not work with nested folder structure
 def mlog(msg):
     print(msg)
 
@@ -31,6 +32,8 @@ def has_ssh_config():
     #          User root
     #          PreferredAuthentications publickey
     #          IdentityFile /home/${USER}/.ssh/id_rsa
+    #          ForwardX11 no
+    #          ForwardAgent no
     ###
     try:
         subprocess.check_output('grep -Fx "Host remarkable" ~/.ssh/config', shell=True)
@@ -44,18 +47,19 @@ class Remarkable:
         if os.environ["USER"]:
             default_main = "/home/{}/remarkable".format(os.environ["USER"])
         # path to ssh key to authenticate to remarkable
-        self.ssh_key_file = None
+        self.ssh_key_file = ""
         if use_ssh:
             if not has_ssh_config():
-                self.ssh_key_file = ssh_key_file or "/home/{}/.ssh/id_rsa".format(os.environ["USER"])
+                self.ssh_key_file = " -i " + (ssh_key_file or "/home/{}/.ssh/id_rsa".format(os.environ["USER"]))
             else:
                 mlog('Using ssh config file')
-
+        
         self.main_directory  = main_directory or default_main
         self.sync_directory  = os.path.join(self.main_directory, "pdfs")
         self.note_directory  = os.path.join(self.sync_directory, "notes")
         self.tools_directory = os.path.join(self.main_directory, "rMTools")
         self.temp_directory  = os.path.join(self.main_directory, "temp")
+        self.folder_directory = os.path.join(self.temp_directory, "folder")
         self.remarkable_backup_directory = os.path.join(self.main_directory, "remarkableBackup")
         self.remarkable_content = "xochitl"
         self.remarkable_directory = "/home/root/.local/share/remarkable/xochitl"
@@ -64,7 +68,6 @@ class Remarkable:
         
         self.conversion_script_pdf   = os.path.join(self.tools_directory, "maxio/tools/rM2pdf")
         self.conversion_script_notes = os.path.join(self.tools_directory, "maxio/tools/rM2svg")
-        self.check_dir_structure()
         self.pdf_names_on_rm = []
         mlog("Main directory:  {}".format(self.main_directory))
         mlog("Sync directory:  {}".format(self.sync_directory))
@@ -78,18 +81,14 @@ class Remarkable:
         create_dir_if_missing(self.temp_directory)
         create_dir_if_missing(self.note_directory)
         create_dir_if_missing(self.tools_directory)
+        create_dir_if_missing(self.folder_directory)
         git_clone(self.tools_directory, "lschwetlick", "maxio")
 
-    def backupRemarkable(self):
-        self.check_dir_structure()
+    def backupRemarkable(self):        
         mlog("Backing up your remarkable files")
         # Sometimes the remarkable doesnt connect properly. In that case turn off & disconnect -> turn on -> reconnect
         
-        # If ssh key file was provided, and remarkable was set up to use it, then use it    
-        if self.ssh_key_file:
-            self.ssh_key_file = " -i " + self.ssh_key_file
-        else:
-            self.ssh_key_file = ""
+
         backup_cmd = "".join(["scp ", self.ssh_key_file
                                 ," -r ", self.remarkable_username
                                 ,   "@", self.remarkable_ip
@@ -244,16 +243,63 @@ class Remarkable:
             # Make record of pdf files already on device
             rm_pdf_name = meta["visibleName"]+".pdf" if meta["visibleName"][-4:]!=".pdf" else meta["visibleName"]
             self.pdf_names_on_rm.append(rm_pdf_name)
+    
+    def get_rm_folder_structure(self):
+        cmd = "ssh remarkable grep -rnHl CollectionType {}/*.metadata".format(self.remarkable_directory)        
+            #+ " | ssh remarkable xargs grep visibleName " \
+            #+ " | awk {'print$3'}"
+        rm_folder_metadata_files = (subprocess
+                .check_output(cmd, shell=True)
+                .decode('utf-8')
+                .split("\n"))
+        for f in rm_folder_metadata_files:
+            if f:
+                cmd = "".join(["scp "
+                    ," -r ", self.remarkable_username
+                    ,   "@", self.remarkable_ip
+                    ,   ":", f
+                    ,   " ", self.folder_directory
+                    ])
+                subprocess.Popen(cmd, shell=True)
+        
+        structure_metadata = dict()
+        for f in glob.glob(os.path.join(self.folder_directory, "*.metadata")):
+            file_name = os.path.basename(f)[:-9]
+            structure_metadata[file_name] = dict(json.loads(open(f).read()))        
+        existing_folders = dict()
+        i = 0
+        while structure_metadata and i<10:
+            i += 1
+            for k,v in structure_metadata.items():            
+                if k not in existing_folders.keys():
+                    fld = v['visibleName']
+                    parent_fld = None
+                    if not v['parent']: 
+                        parent_fld = self.sync_directory 
+                    else:
+                        if v['parent'] in existing_folders.keys():
+                            parent_fld = existing_folders[v['parent']]
+                    if parent_fld:
+                        new_path = os.path.join(parent_fld, fld)
+                        create_dir_if_missing(new_path)
+                        existing_folders[k] = new_path
+            for k in existing_folders.keys():
+                if k in structure_metadata.keys():
+                    del structure_metadata[k]
+        return existing_folders
+        
 
 def main():
     remarkable = Remarkable(use_ssh = True)
-    sync = input("Do you want to Sync from your rM? (y/n)")
-    if sync == "y":
-        remarkable.backupRemarkable()
+    remarkable.check_dir_structure()
+    #sync = input("Do you want to Sync from your rM? (y/n)")
+    #if sync == "y":
+    #    remarkable.backupRemarkable()
     
-    remarkable.get_file_lists()
-    remarkable.annotated()
-    remarkable.upload()
+    #remarkable.get_file_lists()
+    #remarkable.annotated()
+    #remarkable.upload()
+    remarkable.get_rm_folder_structure()
 
 if __name__ == "__main__":
     main()
