@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#!/usr/bin/python3
 import os
 import shutil
 import glob
@@ -65,7 +66,7 @@ class Remarkable:
         self.remarkable_directory = "/home/root/.local/share/remarkable/xochitl"
         self.remarkable_username = "root"
         self.remarkable_ip = "10.11.99.1"
-        
+        self.folder_structure = None
         self.conversion_script_pdf   = os.path.join(self.tools_directory, "maxio/tools/rM2pdf")
         self.conversion_script_notes = os.path.join(self.tools_directory, "maxio/tools/rM2svg")
         self.pdf_names_on_rm = []
@@ -87,8 +88,6 @@ class Remarkable:
     def backupRemarkable(self):        
         mlog("Backing up your remarkable files")
         # Sometimes the remarkable doesnt connect properly. In that case turn off & disconnect -> turn on -> reconnect
-        
-
         backup_cmd = "".join(["scp ", self.ssh_key_file
                                 ," -r ", self.remarkable_username
                                 ,   "@", self.remarkable_ip
@@ -120,27 +119,13 @@ class Remarkable:
     def upload(self):
         # we dont want to re-upload Notes
         self.sync_files_list = [ x for x in self.sync_files_list if not "/notes/" in x ]
-        #print("self.sync_files_list")
-        #print(self.sync_files_list)
 
         sync_names = [ os.path.basename(f) for f in self.sync_files_list ]
         # we dont want to re-upload_annotated pdfs
         sync_names = [ x for x in sync_names if not "annot" in x ]
 
-        #print("sync_names")
-        #print(sync_names)
-
-        # this gets elements that are in list 1 but not in list 2
-        #print("self.rm_backup_pdf_list")
-        #print(self.rm_backup_pdf_list)
-        
         upload_list = [x for x in sync_names if not x in self.rm_visible_names]
-        #print("rm_visible_names")
-        #print(self.rm_visible_names)
-        #print("self.upload_list")
-        #print(upload_list)
-        # print("upload_list")
-        # print(upload_list)
+
         for i in range(0,len(upload_list)):
             file_path = glob.glob(os.path.join(self.sync_directory, upload_list[i]))[0]
             file_name = upload_list[i] if upload_list[i][-4:0]!="pdf" else upload_list[:-4]
@@ -149,11 +134,9 @@ class Remarkable:
             mlog("upload {} from {}".format(file_name, file_path))
             upload_cmd = "".join(["curl 'http://10.11.99.1/upload' -H 'Origin: http://10.11.99.1' -H 'Accept: */*' -H 'Referer: http://10.11.99.1/' -H 'Connection: keep-alive' -F 'file=@", file_path, ";filename=", file_name,";type=application/pdf'"])
             subprocess.Popen(upload_cmd, shell=True).wait()
-        #     print("upload "+ upload_list[i])
     
     def get_metadata(self, file_name, file_type = "pdf"):
         type_ln = len(file_type)+1
-        #ref_nr = os.path.basename(file_name[:-type_ln])
         ref_nr_path = file_name[:-type_ln]
         # get metadata
         meta = json.loads(open(ref_nr_path+".metadata").read())
@@ -176,8 +159,13 @@ class Remarkable:
 
             if AnnotPDF:
                 mlog('dealing with annotated pdfs')
-                # deal with annotated pdfs
-                tmp_sync_dir = os.path.join(self.sync_directory, meta["visibleName"])
+                # deal with annotated pdfs                
+                dest_path = self.sync_directory
+                # check if a pdf should be in a nested folder
+                # if yes, make the annotation there
+                if meta['parent']:
+                    dest_path = self.folder_structure[meta['parent']]
+                tmp_sync_dir = os.path.join(dest_path, meta["visibleName"])
                 sync_file_path = tmp_sync_dir + ".pdf" if meta["visibleName"][-4:]!=".pdf" else tmp_sync_dir
                 in_sync_folder = True if glob.glob(sync_file_path)!=[] else False
                 if in_sync_folder:
@@ -185,7 +173,7 @@ class Remarkable:
 
                     mlog(meta["visibleName"]+" is being exported.")
 
-                    lines_out = os.path.join(self.sync_directory, "lines_temp.pdf")
+                    lines_out = os.path.join(dest_path, "lines_temp.pdf")
                     # Could also use empty pdf on remarkable, but computer side annotations are lost. 
                     # This way if something has been annotated lots fo times it may stat to suck in quality
                     # uses github code
@@ -201,8 +189,6 @@ class Remarkable:
                     subprocess.Popen(stamp_cmd, shell=True).wait()
                     # Remove temporary files
                     os.remove(lines_out)
-
-
                 else:
                     mlog("{} does not exist in the sync directory".format(meta["visibleName"]))
                     # ToDo allow y/n input whether it should be copied there anyway
@@ -252,6 +238,7 @@ class Remarkable:
                 .check_output(cmd, shell=True)
                 .decode('utf-8')
                 .split("\n"))
+        
         for f in rm_folder_metadata_files:
             if f:
                 cmd = "".join(["scp "
@@ -260,7 +247,7 @@ class Remarkable:
                     ,   ":", f
                     ,   " ", self.folder_directory
                     ])
-                subprocess.Popen(cmd, shell=True)
+                subprocess.Popen(cmd, shell=True).wait()
         
         structure_metadata = dict()
         for f in glob.glob(os.path.join(self.folder_directory, "*.metadata")):
@@ -286,20 +273,24 @@ class Remarkable:
             for k in existing_folders.keys():
                 if k in structure_metadata.keys():
                     del structure_metadata[k]
+        self.folder_structure = existing_folders
         return existing_folders
-        
+    
+    def clean(self):
+        mlog("Deleting temporary folder")
+        shutil.rmtree(self.temp_directory) 
 
 def main():
     remarkable = Remarkable(use_ssh = True)
     remarkable.check_dir_structure()
-    #sync = input("Do you want to Sync from your rM? (y/n)")
-    #if sync == "y":
-    #    remarkable.backupRemarkable()
+    sync = input("Do you want to Sync from your rM? (y/n)")
+    if sync == "y":
+        remarkable.backupRemarkable()
+    remarkable.get_rm_folder_structure()    
+    remarkable.get_file_lists()
+    remarkable.annotated()
+    remarkable.upload()
+    remarkable.clean()
     
-    #remarkable.get_file_lists()
-    #remarkable.annotated()
-    #remarkable.upload()
-    remarkable.get_rm_folder_structure()
-
 if __name__ == "__main__":
     main()
