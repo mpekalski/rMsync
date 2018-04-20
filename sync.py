@@ -6,6 +6,7 @@ import glob
 import json
 import subprocess
 import time
+import re
 # needs imagemagick, pdftk, cpdf, cairocffi, libffi-dev, python3-pypdf2
 
 # TODO: does not work with nested folder structure
@@ -409,9 +410,42 @@ class Remarkable:
         subprocess.Popen(cmd, shell=True).wait()
         mlog("")
 
+    def create_dir_if_missing_rm(self, directory, parent_hash=''):
+        r = re.compile("-(\d+)\.metadata")
+        tmp = "00000000-0000-0000-0000-000000000000"
+        cmd = 'ssh remarkable "ls -t {}/00000000-0000-0000-0000-*.metadata | sort -r | head -n 1"'.format(self.remarkable_directory)    
+        last_manual_folder_hash = subprocess.check_output(cmd, shell=True).decode('utf-8')
+
+        if last_manual_folder_hash != "":
+            counter = str(int(r.findall(last_manual_folder_hash)[0])+1)
+            manual_folder_hash = last_manual_folder_hash[:-1-len(counter)-len(".metadata")]+counter
+        else:
+            manual_folder_hash = os.path.join(self.remarkable_directory, tmp)
+
+        cmd = 'ssh remarkable "echo \'{}\'> {}.content"'.format("{}", manual_folder_hash)
+        subprocess.Popen(cmd, shell=True).wait()
+        
+        metadata = "{"+'''
+                            \\"deleted\\": false,
+                            \\"lastModified\\": \\"{}\\",
+                            \\"metadatamodified\\": true,
+                            \\"modified\\": true,
+                            \\"parent\\": \\"{}\\",
+                            \\"pinned\\": false,
+                            \\"synced\\": false,
+                            \\"type\\": \\"CollectionType\\",
+                            \\"version\\": 0,
+                            \\"visibleName\\": \\"{}\\"
+                        '''.format(str(int(time.time()*100)), parent_hash, directory)+"}"
+        cmd = 'ssh remarkable "echo \'{}\' > {}.metadata"'.format(metadata, manual_folder_hash)
+        subprocess.Popen(cmd, shell=True).wait()
+
+
 def main():
     remarkable = Remarkable(use_ssh = True)
     remarkable.check_dir_structure()
+    remarkable.create_dir_if_missing_rm("test")
+    return 0
     sync = input("Do you want to Sync from your rM? (y/n)")
     if sync == "y":
         remarkable.backupRemarkable()
