@@ -424,6 +424,9 @@ class Remarkable:
         return False
     
     def create_dir_if_missing_rm(self, abs_local_path, parent_hash=''):
+        # A bit of recursion here, if we have nested folders that do not
+        # exist on rM. Take the innter one and go through the same proces.
+        # If we reach a folder that exists then just pass over the parent_hash.
         if not self.check_dir_rm(abs_local_path):
             print(abs_local_path)
             tmp_path = "/".join(abs_local_path.split('/')[:-1])
@@ -439,6 +442,9 @@ class Remarkable:
             parent_hash = self.create_dir(abs_local_path, parent_hash)
             
             return parent_hash
+        else:
+            print("getting hash", abs_local_path,self.folder_hash_structure[abs_local_path])
+            return self.folder_hash_structure[abs_local_path].split("/")[-1]
     
     def create_dir(self, abs_local_path, parent_hash=''):
         directory = abs_local_path.split("/")[-1]
@@ -451,6 +457,7 @@ class Remarkable:
             counter = str(int(r.findall(last_manual_folder_hash)[0])+1)
             manual_folder_hash = last_manual_folder_hash[:-1-len(counter)-len(".metadata")]+counter
         else:
+            print("using default")
             manual_folder_hash = os.path.join(self.remarkable_directory, tmp)
 
         cmd = 'ssh remarkable "echo \'{}\'> {}.content"'.format("{}", manual_folder_hash)
@@ -482,6 +489,8 @@ def main():
     remarkable = Remarkable(use_ssh = True)
     remarkable.check_dir_structure()
     remarkable.create_dir_if_missing_rm("/home/marcgrab/remarkable/pdfs/test/nested_test")
+    remarkable.create_dir_if_missing_rm("/home/marcgrab/remarkable/pdfs/test/nested_test/nested_in_existing/nested_in_existing2")
+    remarkable.create_dir_if_missing_rm("/home/marcgrab/remarkable/pdfs/test/nested_test/nested_in_existing/nested_in_existing2/3333")
     sync = input("Do you want to Sync from your rM? (y/n)")
     if sync == "y":
         remarkable.backupRemarkable()
