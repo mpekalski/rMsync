@@ -138,8 +138,8 @@ class Remarkable:
                                     .decode('utf-8')
                     ))
 
-    def get_folder_hash(self, folder):
-        if not self.folder_hash_structure:
+    def get_folder_hash(self, folder, force=False):
+        if not self.folder_hash_structure or force:
             self.get_rm_folder_structure()
         mhash = ""
         if folder in self.folder_hash_structure.keys():
@@ -149,8 +149,6 @@ class Remarkable:
     def upload(self):
         # We dont want to re-upload Notes
         self.sync_files_list = [ x for x in self.sync_files_list if not "/notes/" in x ]
-        
-        
         
         sync_names = [ os.path.basename(f) for f in self.sync_files_list ]
         sync_names = dict()
@@ -347,6 +345,9 @@ class Remarkable:
             self.pdf_names_on_rm.append(rm_pdf_name)
     
     def get_rm_folder_structure(self):
+        #
+        # folder_hash_structure - has absolute local path of a folder and corresponding rm folder hash
+        #
         cmd = "ssh remarkable grep -rnHl CollectionType {}/*.metadata".format(self.remarkable_directory)        
         rm_folder_metadata_files = (subprocess
                 .check_output(cmd, shell=True)
@@ -410,7 +411,37 @@ class Remarkable:
         subprocess.Popen(cmd, shell=True).wait()
         mlog("")
 
-    def create_dir_if_missing_rm(self, directory, parent_hash=''):
+
+    def check_dir_rm(self, abs_local_path):
+        print('check_dir_rm',abs_local_path)
+        if not self.folder_hash_structure:
+            print('getting structure')
+            self.get_rm_folder_structure()
+        
+        if abs_local_path in self.folder_hash_structure.keys():
+            print('folder exists')
+            return True        
+        return False
+    
+    def create_dir_if_missing_rm(self, abs_local_path, parent_hash=''):
+        if not self.check_dir_rm(abs_local_path):
+            print(abs_local_path)
+            tmp_path = "/".join(abs_local_path.split('/')[:-1])
+            print(tmp_path)
+            if self.sync_directory in tmp_path and self.sync_directory != tmp_path:
+                time.sleep(1)
+                print("create_dir_if_missing_rm | tmp_path :",tmp_path)
+                parent_hash = self.create_dir_if_missing_rm(tmp_path, parent_hash)
+            else:
+                parent_hash = ""
+            print("create_dir_if_missing_rm | abs_local_path :",abs_local_path)
+            print("parent_hash",parent_hash)
+            parent_hash = self.create_dir(abs_local_path, parent_hash)
+            
+            return parent_hash
+    
+    def create_dir(self, abs_local_path, parent_hash=''):
+        directory = abs_local_path.split("/")[-1]
         r = re.compile("-(\d+)\.metadata")
         tmp = "00000000-0000-0000-0000-000000000000"
         cmd = 'ssh remarkable "ls -t {}/00000000-0000-0000-0000-*.metadata | sort -r | head -n 1"'.format(self.remarkable_directory)    
@@ -439,17 +470,23 @@ class Remarkable:
                         '''.format(str(int(time.time()*100)), parent_hash, directory)+"}"
         cmd = 'ssh remarkable "echo \'{}\' > {}.metadata"'.format(metadata, manual_folder_hash)
         subprocess.Popen(cmd, shell=True).wait()
-
+        #
+        # add the folder to local folder dictionary
+        #
+        self.folder_hash_structure[abs_local_path] = manual_folder_hash
+        self.hash_folder_structure[manual_folder_hash] = abs_local_path
+        mlog('rM: Created folder {} | {} | {}'.format(manual_folder_hash, directory,  abs_local_path))
+        return manual_folder_hash.split("/")[-1]
 
 def main():
     remarkable = Remarkable(use_ssh = True)
     remarkable.check_dir_structure()
-    remarkable.create_dir_if_missing_rm("test")
-    return 0
+    remarkable.create_dir_if_missing_rm("/home/marcgrab/remarkable/pdfs/test/nested_test")
     sync = input("Do you want to Sync from your rM? (y/n)")
     if sync == "y":
         remarkable.backupRemarkable()
     print(remarkable.get_rm_folder_structure())
+    print(remarkable.folder_hash_structure)
     #remarkable.get_file_structure()
     remarkable.get_file_lists()
     remarkable.annotated()
