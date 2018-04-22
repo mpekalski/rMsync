@@ -18,7 +18,7 @@ import inspect
 # TODO: check if files/folders with spaces are processed properly
 # TODO: check if annotation pdf has also corresponding original, otherwise we may want to upload it
 # TODO: there might be problem when copying file from subfolder that has the same name as file in the root as the file gets first copied to the root
-
+# TODO: everything fails when there are no folders on device
 
 def mlog(msg):
     curframe = inspect.currentframe()
@@ -311,7 +311,8 @@ class Remarkable:
                 dest_path = self.sync_directory
                 # Check if a pdf should be in a nested folder
                 # If yes, make the annotation there
-                if meta['parent']:
+                # and of course do so if there are any folders on rm
+                if meta['parent'] and self.hash_folder_structure:
                     dest_path = self.hash_folder_structure[meta['parent']]
                 
                 tmp_sync_dir = os.path.join(dest_path, meta["visibleName"])
@@ -340,7 +341,7 @@ class Remarkable:
                     # Remove temporary files
                     os.remove(lines_out)
                 else:
-                    mlog("{} does not exist in the sync directory".format(meta["visibleName"]))
+                    mlog("{} does not exist in the local sync directory".format(meta["visibleName"]))
                     # ToDo allow y/n input whether it should be copied there anyway
             else:
                 # deal with blank notes
@@ -381,11 +382,17 @@ class Remarkable:
         #
         # folder_hash_structure - has absolute local path of a folder and corresponding rm folder hash
         #
-        cmd = "ssh remarkable grep -rnHl CollectionType {}/*.metadata".format(self.remarkable_directory)        
-        rm_folder_metadata_files = (subprocess
+        cmd = "ssh remarkable 'grep -rnHl CollectionType {}/*.metadata'".format(self.remarkable_directory)        
+        try:
+            rm_folder_metadata_files = (subprocess
                 .check_output(cmd, shell=True)
                 .decode('utf-8')
                 .split("\n"))
+        except subprocess.CalledProcessError:
+            mlog("No metafiles for directories found on rM")
+            self.hash_folder_structure = dict()
+            self.folder_hash_structure = dict()
+            return self.folder_hash_structure
         
         for f in rm_folder_metadata_files:
             if f:
