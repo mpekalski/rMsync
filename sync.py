@@ -313,7 +313,10 @@ class Remarkable:
                 # If yes, make the annotation there
                 # and of course do so if there are any folders on rm
                 if meta['parent'] and self.hash_folder_structure:
-                    dest_path = self.hash_folder_structure[meta['parent']]
+                    if meta['parent']in self.hash_folder_structure.keys():
+                        dest_path = self.hash_folder_structure[meta['parent']]
+                    else:
+                        mlog('parent folder {} for {} does not exist in self.hash_folder_strucutre'.format(meta['parent'], meta['visibleName']))
                 
                 tmp_sync_dir = os.path.join(dest_path, meta["visibleName"])
                 sync_file_path = tmp_sync_dir + ".pdf" if meta["visibleName"][-4:]!=".pdf" else tmp_sync_dir
@@ -466,21 +469,22 @@ class Remarkable:
         # exist on rM. Take the innter one and go through the same proces.
         # If we reach a folder that exists then just pass over the parent_hash.
         mlog("abs_local_path: " + abs_local_path)        
-        if not self.check_dir_rm(abs_local_path):
-            tmp_path = "/".join(abs_local_path.split('/')[:-1])
-            if self.sync_directory in tmp_path and self.sync_directory != tmp_path:
-                time.sleep(1)
-                mlog("tmp_path: " + tmp_path)
-                parent_hash = self.create_dir_if_missing_rm(tmp_path, parent_hash)
+        if abs_local_path != self.temp_directory:
+            if not self.check_dir_rm(abs_local_path):
+                tmp_path = "/".join(abs_local_path.split('/')[:-1])
+                if self.sync_directory in tmp_path and self.sync_directory != tmp_path:
+                    time.sleep(1)
+                    mlog("tmp_path: " + tmp_path)
+                    parent_hash = self.create_dir_if_missing_rm(tmp_path, parent_hash)
+                else:
+                    parent_hash = ""
+                mlog("parent_hash: " + parent_hash)
+                parent_hash = self.create_dir(abs_local_path, parent_hash)
+                return parent_hash
             else:
-                parent_hash = ""
-            mlog("parent_hash: " + parent_hash)
-            parent_hash = self.create_dir(abs_local_path, parent_hash)
-            return parent_hash
-        else:
-            parent_hash = self.folder_hash_structure[abs_local_path].split("/")[-1]
-            mlog("parent_hash: " + parent_hash)
-            return parent_hash
+                parent_hash = self.folder_hash_structure[abs_local_path].split("/")[-1]
+                mlog("parent_hash: " + parent_hash)
+                return parent_hash
     
     def create_dir(self, abs_local_path, parent_hash=''):
         directory = abs_local_path.split("/")[-1]
@@ -509,7 +513,7 @@ class Remarkable:
                             \\"type\\": \\"CollectionType\\",
                             \\"version\\": 0,
                             \\"visibleName\\": \\"{}\\"
-                        '''.format(str(int(time.time()*100)), parent_hash, directory)+"}"
+                        '''.format(str(int(time.time()*1000)), parent_hash, directory)+"}"
         cmd = 'ssh remarkable "echo \'{}\' > {}.metadata"'.format(metadata, manual_folder_hash)
         subprocess.Popen(cmd, shell=True).wait()
         #
