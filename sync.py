@@ -118,7 +118,7 @@ class Remarkable:
                                                     , self.remarkable_content, "*.pdf"))
         self.rm_backup_lines_list   = glob.glob(os.path.join(self.remarkable_backup_directory
                                                     , self.remarkable_content, "*.lines"))
-        self.path_visible_names = dict()
+        self.abs_file_path_visible_names_rm = dict()
         for x in (subprocess
                     .check_output("ssh remarkable grep visibleName {}/*.metadata"
                                     .format(self.remarkable_directory)
@@ -128,7 +128,7 @@ class Remarkable:
                     .split("\n")):
             z = x.split(":")
             if z[0]!='':
-                self.path_visible_names[z[0]] = z[1].strip()[1:-1]
+                self.abs_file_path_visible_names_rm[z[0]] = z[1].strip()[1:-1]
 
     def get_file_list_rm(self):
         # get only DocumentType files, no folders
@@ -154,15 +154,15 @@ class Remarkable:
                 parent_file_dict[y[0]]=y[-1].strip()[1:-1]
 
         parent_hash_file_list = []
-        for k,v in parent_file_dict.items():
-            parent_hash_file_list.append([k, hash_file_dict[k], v])
+        for local_file_name,metadata in parent_file_dict.items():
+            parent_hash_file_list.append([local_file_name, hash_file_dict[local_file_name], metadata])
         
         self.parent_hash_file_list = parent_hash_file_list
         
-    def get_metadata_ssh(self, file_hash):
+    def get_metadata_ssh(self, folder_hash):
         return json.loads((subprocess
                                     .check_output("ssh remarkable cat {}"
-                                                    .format(file_hash)
+                                                    .format(folder_hash)
                                                   , shell=True)
                                     .decode('utf-8')
                     ))
@@ -178,7 +178,7 @@ class Remarkable:
     def upload(self):
         # We dont want to re-upload Notes
         self.sync_files_list = [ x for x in self.sync_files_list if not "/notes/" in x ]
-        
+        print(self.sync_files_list)
         #sync_names = [ os.path.basename(f) for f in self.sync_files_list ]
         sync_names = []
         for f in self.sync_files_list:
@@ -194,85 +194,99 @@ class Remarkable:
         mlog("sync_names: " + str(sync_names))
         # sync_names = [ x for x in sync_names.keys() if not "annot" in x ]
         #
-        # sync_names = dict{file_name: [local_abs_path, rm_parent_hash]}
-        # path_visible_names = dict{path_to_metadata_on_rm: file_name}
+        # sync_names = dict{local_file_name: [local_abs_path, rm_parent_hash]}
+        # abs_file_path_visible_names_rm = dict{path_to_metadata_on_rm: local_file_name}
         # 
         # now check if a given file should not be omited
         upload_list = []
         for x in sync_names:
-            file_name, abs_path, file_hash = x
+            local_file_name, abs_path, folder_hash = x
             paths = []
             found_visible_name = False
-            # for given file_name, check get all possible metadata files
+            # for given local_file_name, check get all possible metadata files
             # all because there can be files with the same names in 
             # different folders
-            for hash_path_rm, visible_name in self.path_visible_names.items():
-                if file_name == visible_name:
-                    # paths on rm to metadata
-                    paths.append(hash_path_rm)
-                    found_visible_name = True
+            #if hash_abs_path_rm.split("/")[-1][:-9] in self.hash_folder_structure:
+            for hash_abs_path_rm, visible_name in self.abs_file_path_visible_names_rm.items():
+                if local_file_name == visible_name:
+                    mlog("there is a file with the same name as {} on rm".format(local_file_name))
+                    metadata_rm = self.get_metadata_ssh(hash_abs_path_rm)
+                    # if we found file with the same name, let's check if the parent folder
+                    # is the current local absolute path
+                    if metadata_rm['parent'] != "":
+                        if abs_path == self.hash_folder_structure[metadata_rm['parent']]:
+                            # paths on rm to metadata
+                            #paths.append(hash_abs_path_rm)
+                            found_visible_name = True
+                            mlog("found_visible_name: "+" | ".join([local_file_name, abs_path, str(found_visible_name)]))
+                    else: 
+                        if abs_path == self.sync_directory:
+                            found_visible_name = True
+                            mlog("found_visible_name: "+" | ".join([local_file_name, abs_path, str(found_visible_name)]))
+
             # if there was no file with the same name on rm, add it to upload dict
             if not found_visible_name:
-                upload_list.append([file_name, abs_path,file_hash])
-                mlog("added (1): ".join([file_name,abs_path, file_hash]))
-            else:
+                upload_list.append([local_file_name, abs_path,folder_hash])
+                mlog("added (1): " + " ".join([local_file_name,abs_path, folder_hash]))
+            if False:
                 # check if any of the relative paths on rm corresponds to folder on host
                 # if not it means that the file is in different folder, so it should be
                 # uploaded
                 no_match = True
                 for p in paths:
                     metadata = self.get_metadata_ssh(p)
-                    if metadata['parent']==file_hash:                        
-                        no_match = False
+                    if metadata['parent']==folder_hash:                        
+                            no_match = False
+                print("no_match: " + str(no_match))
                 if no_match:
-                    upload_list.append([file_name, abs_path, file_hash])
-                    mlog("added (2): ".join([file_name,abs_path, file_hash]))
+                    upload_list.append([local_file_name, abs_path, folder_hash])
+                    mlog("added (2): " + " ".join([local_file_name,abs_path, folder_hash]))
 
         
         mlog("upload_list: " + str(upload_list))
         for x in upload_list:
-            file_name, abs_path, file_hash = x
-            file_name = file_name if file_name[-4:0]!="pdf" else file_name[:-4]
+            local_file_name, abs_path, folder_hash = x
+            local_file_name = local_file_name if local_file_name[-4:0]!="pdf" else local_file_name[:-4]
             parent_fld = abs_path[len(self.sync_directory)+1:]
-            file_path = os.path.join(abs_path, file_name)
+            file_path = os.path.join(abs_path, local_file_name)
             mlog("abs_path: " + abs_path)
-            mlog("file_name: " + file_name)
-            mlog("file_hash: " + file_hash)
+            mlog("local_file_name: " + local_file_name)
+            mlog("folder_hash: " + folder_hash)
             mlog("parent folder: " + parent_fld)
 
-            # if file_hash is missing and we do not upload to the main 
+            # if folder_hash is missing and we do not upload to the main 
             # directory, then it means we are missing a folder, and 
             # it should be created
-            sed_parent = file_hash #sync_names[file_name][1]
-            if file_hash == "" and abs_path != self.sync_directory:
+            sed_parent = folder_hash #sync_names[local_file_name][1]
+            if folder_hash == "" and abs_path != self.sync_directory:
                 sed_parent = self.create_dir_if_missing_rm(abs_path)
             mlog("sed_parent: " + sed_parent)
             
         # ToDo
         # http://remarkablewiki.com/index.php?title=Methods_of_access
             
-            mlog("upload {} from {}".format(file_name, file_path))
+            mlog("upload {} from {}".format(local_file_name, file_path))
             #
             # first we upload file with random name, and then change it to a proper one
             # but at the same time changing the parent. Otherwise we may overwrite the
             # file in root if we have a file with the same name in one of subfolders
             #
-            random_file_name = "marcin_" + str(random.random())[2:]+".pdf"
-            upload_cmd = "".join(["curl 'http://10.11.99.1/upload' -H 'Origin: http://10.11.99.1' -H 'Accept: */*' -H 'Referer: http://10.11.99.1/' -H 'Connection: keep-alive' -F 'file=@", file_path, ";filename=", random_file_name, ";type=application/pdf'"])            
+            random_file_hash = "marcin_" + str(random.random())[2:]+".pdf"
+            upload_cmd = "".join(["curl 'http://10.11.99.1/upload' -H 'Origin: http://10.11.99.1' -H 'Accept: */*' -H 'Referer: http://10.11.99.1/' -H 'Connection: keep-alive' -F 'file=@", file_path, ";filename=", random_file_hash, ";type=application/pdf'"])            
             subprocess.Popen(upload_cmd, shell=True).wait()
 
             last_file_hash = ""
             while last_file_hash=="":
                 mlog("while | waiting")
                 time.sleep(1)
-                cmd = 'ssh remarkable "grep -lrn {} {}/*.metadata"'.format(random_file_name, self.remarkable_directory)
+                cmd = 'ssh remarkable "grep -lrn {} {}/*.metadata"'.format(random_file_hash, self.remarkable_directory)
                 try:
                     last_file_hash = subprocess.check_output(cmd, shell=True).decode('utf-8')   
                 except:
                     pass
                 time.sleep(1)
             #cmd = 'ssh remarkable "ls -t {}/*.metadata | head -n 1 | xargs grep -H visibleName"'.format(self.remarkable_directory)    
-            #cmd = 'ssh remarkable "grep -r {} {}/" '.format(file_name, self.remarkable_directory) 
+            #cmd = 'ssh remarkable "grep -r {} {}/" '.format(local_file_name, self.remarkable_directory) 
             mlog(cmd)
             mlog(last_file_hash)
             if True: #last_file == "1":
@@ -282,15 +296,15 @@ class Remarkable:
                         ssh remarkable 'sed -i '"'"'s/"visibleName": "{}"/"visibleName": "{}"/g'"'"' {}'
                     """.format(sed_parent, last_file_hash
                              , last_file_hash
-                             , random_file_name,  file_name, last_file_hash)            
+                             , random_file_hash,  local_file_name.replace(".","\."), last_file_hash)            
                 mlog(cmd)
                 subprocess.Popen(cmd, shell=True).wait()
                 if sed_parent != "":
                     mlog("File moved to the correct folder")
 
-    def get_metadata(self, file_name, file_type = "pdf"):
+    def get_metadata(self, local_file_name, file_type = "pdf"):
         type_ln = len(file_type)+1
-        ref_nr_path = file_name[:-type_ln]
+        ref_nr_path = local_file_name[:-type_ln]
         meta = json.loads(open(ref_nr_path+".metadata").read())
         return ref_nr_path, meta
 
@@ -313,7 +327,7 @@ class Remarkable:
                 # If yes, make the annotation there
                 # and of course do so if there are any folders on rm
                 if meta['parent'] and self.hash_folder_structure:
-                    if meta['parent']in self.hash_folder_structure.keys():
+                    if meta['parent'] in self.hash_folder_structure.keys():
                         dest_path = self.hash_folder_structure[meta['parent']]
                     else:
                         mlog('parent folder {} for {} does not exist in self.hash_folder_strucutre'.format(meta['parent'], meta['visibleName']))
@@ -409,8 +423,8 @@ class Remarkable:
         
         structure_metadata = dict()
         for f in glob.glob(os.path.join(self.folder_directory, "*.metadata")):
-            file_name = os.path.basename(f)[:-9]
-            structure_metadata[file_name] = dict(json.loads(open(f).read()))        
+            local_file_name = os.path.basename(f)[:-9]
+            structure_metadata[local_file_name] = dict(json.loads(open(f).read()))        
         
         # check the whole path not only the last folder
         # as some folders may have the same name although
@@ -420,28 +434,29 @@ class Remarkable:
         sanity_stop = 100
         while structure_metadata and i<sanity_stop:
             i += 1
-            for k,v in structure_metadata.items():            
-                if k not in existing_folders.keys():
-                    fld = v['visibleName']
+            for local_file_name, metadata in structure_metadata.items():            
+                if local_file_name not in existing_folders.keys():
+                    fld = metadata['visibleName']
                     parent_fld = None
-                    if not v['parent']: 
+                    # no parent then use root
+                    if not metadata['parent']: 
                         parent_fld = self.sync_directory 
                     else:
-                        if v['parent'] in existing_folders.keys():
-                            parent_fld = existing_folders[v['parent']]
+                        if metadata['parent'] in existing_folders.keys():
+                            parent_fld = existing_folders[metadata['parent']]
                     if parent_fld:
-                        new_path = os.path.join(parent_fld, fld)
-                        create_dir_if_missing(new_path)
-                        existing_folders[k] = new_path
-            for k in existing_folders.keys():
-                if k in structure_metadata.keys():
-                    del structure_metadata[k]
+                        new_abs_file_path = os.path.join(parent_fld, fld)
+                        create_dir_if_missing(new_abs_file_path)
+                        existing_folders[local_file_name] = new_abs_file_path
+            for local_file_name in existing_folders.keys():
+                if local_file_name in structure_metadata.keys():
+                    del structure_metadata[local_file_name]
         self.hash_folder_structure = existing_folders
         self.folder_hash_structure = dict()
-        for k,v in existing_folders.items():
-            self.folder_hash_structure[v] = k
+        for local_file_name,metadata in existing_folders.items():
+            self.folder_hash_structure[metadata] = local_file_name
 
-        mlog("get_rm_folder_structure | folder_hash_structure: " + str(self.folder_hash_structure))
+        mlog("folder_hash_structure: " + str(self.folder_hash_structure))
         return existing_folders
     
     def clean(self):
@@ -529,12 +544,12 @@ def main():
     remarkable = Remarkable(use_ssh = True)
     remarkable.get_file_list_rm()
     remarkable.check_dir_structure()
-    sync = input("Do you want to Sync from your rM? (y/n)")
-    if sync == "y":
-        remarkable.backupRemarkable()
+    #sync = input("Do you want to Sync from your rM? (y/n)")
+    #if sync == "y":
+    #    remarkable.backupRemarkable()
     remarkable.get_rm_folder_structure()
     remarkable.get_file_lists_local()
-    remarkable.annotated()
+    #remarkable.annotated()
     remarkable.upload()
     remarkable.clean()
     restart = input("You need to restart your rM to get files in right folders.\nDo you want to do it now? (y/n)")
