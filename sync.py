@@ -11,15 +11,13 @@ import random
 import inspect
 # needs imagemagick, pdftk, cpdf, cairocffi, libffi-dev, python3-pypdf2
 
-# TODO: does not work with nested folder structure
-# TODO: copy folder structure from PC to rM
 # TODO: make ssh not only config dependent
 # TODO: take care of notebooks created in folders
 # TODO: check if files/folders with spaces are processed properly
 # TODO: check if annotation pdf has also corresponding original, otherwise we may want to upload it
-# TODO: there might be problem when copying file from subfolder that has the same name as file in the root as the file gets first copied to the root
-# TODO: everything fails when there are no folders on device
-
+# TODO: issue with anntoations, I have examples when annotation made on first page appears on both pages of two page document
+#       when notes are taken on two pages, for the same document, everything works fine
+# TODO: find standalone notes files and put those somewhere seperate
 def mlog(msg):
     curframe = inspect.currentframe()
     calframe = inspect.getouterframes(curframe, 2)
@@ -192,12 +190,7 @@ class Remarkable:
                 sync_names.append([base, abs_path, self.get_folder_hash(abs_path)])
                 mlog("file added to sync list: " + f)
         mlog("sync_names: " + str(sync_names))
-        # sync_names = [ x for x in sync_names.keys() if not "annot" in x ]
-        #
-        # sync_names = dict{local_file_name: [local_abs_path, rm_parent_hash]}
-        # abs_file_path_visible_names_rm = dict{path_to_metadata_on_rm: local_file_name}
-        # 
-        # now check if a given file should not be omited
+        
         upload_list = []
         for x in sync_names:
             local_file_name, abs_path, folder_hash = x
@@ -206,7 +199,6 @@ class Remarkable:
             # for given local_file_name, check get all possible metadata files
             # all because there can be files with the same names in 
             # different folders
-            #if hash_abs_path_rm.split("/")[-1][:-9] in self.hash_folder_structure:
             for hash_abs_path_rm, visible_name in self.abs_file_path_visible_names_rm.items():
                 if local_file_name == visible_name:
                     mlog("there is a file with the same name as {} on rm".format(local_file_name))
@@ -241,7 +233,6 @@ class Remarkable:
                 if no_match:
                     upload_list.append([local_file_name, abs_path, folder_hash])
                     mlog("added (2): " + " ".join([local_file_name,abs_path, folder_hash]))
-
         
         mlog("upload_list: " + str(upload_list))
         for x in upload_list:
@@ -285,22 +276,19 @@ class Remarkable:
                 except:
                     pass
                 time.sleep(1)
-            #cmd = 'ssh remarkable "ls -t {}/*.metadata | head -n 1 | xargs grep -H visibleName"'.format(self.remarkable_directory)    
-            #cmd = 'ssh remarkable "grep -r {} {}/" '.format(local_file_name, self.remarkable_directory) 
             mlog(cmd)
             mlog(last_file_hash)
-            if True: #last_file == "1":
-                cmd = """
-                        ssh remarkable 'sed -i '"'"'s/"parent": ""/"parent": "{}"/g'"'"' {}' && \
-                        ssh remarkable 'sed -i '"'"'s/"metadatamodified": false,/"metadatamodified": true,/g'"'"' {}'
-                        ssh remarkable 'sed -i '"'"'s/"visibleName": "{}"/"visibleName": "{}"/g'"'"' {}'
-                    """.format(sed_parent, last_file_hash
-                             , last_file_hash
-                             , random_file_hash,  local_file_name.replace(".","\."), last_file_hash)            
-                mlog(cmd)
-                subprocess.Popen(cmd, shell=True).wait()
-                if sed_parent != "":
-                    mlog("File moved to the correct folder")
+            cmd = """
+                    ssh remarkable 'sed -i '"'"'s/"parent": ""/"parent": "{}"/g'"'"' {}' && \
+                    ssh remarkable 'sed -i '"'"'s/"metadatamodified": false,/"metadatamodified": true,/g'"'"' {}'
+                    ssh remarkable 'sed -i '"'"'s/"visibleName": "{}"/"visibleName": "{}"/g'"'"' {}'
+                """.format(sed_parent, last_file_hash
+                            , last_file_hash
+                            , random_file_hash,  local_file_name.replace(".","\."), last_file_hash)            
+            mlog(cmd)
+            subprocess.Popen(cmd, shell=True).wait()
+            if sed_parent != "":
+                mlog("File moved to the correct folder")
 
     def get_metadata(self, local_file_name, file_type = "pdf"):
         type_ln = len(file_type)+1
@@ -309,7 +297,7 @@ class Remarkable:
         return ref_nr_path, meta
 
     def annotated(self):
-        # #Later ToDo: find standalone notes files and put those somewhere seperate
+        #Later ToDo: find standalone notes files and put those somewhere seperate
         for i in range(0,len(self.rm_backup_lines_list)):
             # Get path and metadata
             ref_nr_path, meta = self.get_metadata(self.rm_backup_lines_list[i], "lines")
@@ -544,12 +532,12 @@ def main():
     remarkable = Remarkable(use_ssh = True)
     remarkable.get_file_list_rm()
     remarkable.check_dir_structure()
-    #sync = input("Do you want to Sync from your rM? (y/n)")
-    #if sync == "y":
-    #    remarkable.backupRemarkable()
+    sync = input("Do you want to Sync from your rM? (y/n)")
+    if sync == "y":
+        remarkable.backupRemarkable()
     remarkable.get_rm_folder_structure()
     remarkable.get_file_lists_local()
-    #remarkable.annotated()
+    remarkable.annotated()
     remarkable.upload()
     remarkable.clean()
     restart = input("You need to restart your rM to get files in right folders.\nDo you want to do it now? (y/n)")
