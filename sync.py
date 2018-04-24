@@ -167,7 +167,7 @@ class Remarkable:
 
     def get_folder_hash(self, folder, force=False):
         if not self.folder_hash_structure or force:
-            self.get_rm_folder_structure()
+            self.get_folder_structure_rm()
         mhash = ""
         if folder in self.folder_hash_structure.keys():
             mhash = self.folder_hash_structure[folder]
@@ -351,9 +351,9 @@ class Remarkable:
             else:
                 # deal with blank notes
                 # needs imagemagick
-                mlog("Exporting Notebook {}".format(meta["visibleName"]))
+                mlog("Exporting Notebook: {}".format(meta["visibleName"]))
 
-                svgOut   = os.path.join(self.temp_directory, "note.svg")
+                svgOut = os.path.join(self.temp_directory, "note.svg")
 
                 mlog("Converting lines to svg")
                 convertlin_svg_cmd = "".join(["python3 ", self.conversion_script_notes
@@ -381,9 +381,8 @@ class Remarkable:
                 self.pdf_names_on_rm.append(rm_pdf_name)
             except FileNotFoundError:
                 mlog("file {} does not exist on rm, cannot get metadata, it exists only in backup".format(ref_nr_path))
-            
     
-    def get_rm_folder_structure(self):
+    def get_folder_structure_rm(self):
         #
         # folder_hash_structure - has absolute local path of a folder and corresponding rm folder hash
         #
@@ -451,16 +450,16 @@ class Remarkable:
         mlog("Deleting temporary folder")
         shutil.rmtree(self.temp_directory)
     
-    def restart(self):
+    def restart_rm(self):
         cmd = "ssh remarkable systemctl restart xochitl"
         mlog("Restarting reMarkable")
         subprocess.Popen(cmd, shell=True).wait()
-
+    
     def check_dir_rm(self, abs_local_path):
         mlog("abs_local_path: " + abs_local_path)
         if not self.folder_hash_structure:
             mlog("getting rm folder structure")
-            self.get_rm_folder_structure()
+            self.get_folder_structure_rm()
         
         if abs_local_path in self.folder_hash_structure.keys():
             mlog("folder exists on rm: " + abs_local_path)
@@ -535,14 +534,14 @@ def main():
     sync = input("Do you want to Sync from your rM? (y/n)")
     if sync == "y":
         remarkable.backupRemarkable()
-    remarkable.get_rm_folder_structure()
+    remarkable.get_folder_structure_rm()
     remarkable.get_file_lists_local()
     remarkable.annotated()
     remarkable.upload()
     remarkable.clean()
-    restart = input("You need to restart your rM to get files in right folders.\nDo you want to do it now? (y/n)")
-    if restart == "y":
-        remarkable.restart()
+    restart_rm = input("You need to restart_rm your rM to get files in right folders.\nDo you want to do it now? (y/n)")
+    if restart_rm == "y":
+        remarkable.restart_rm()
     
 if __name__ == "__main__":
     main()
