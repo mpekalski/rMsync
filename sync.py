@@ -131,7 +131,7 @@ class Remarkable:
     def get_file_list_rm(self):
         # get only DocumentType files, no folders
         # self.hash_file_list_rm contains hash and file name
-        cmd = 'ssh remarkable "grep -lnr DocumentType /home/root/.local/share/remarkable/xochitl/*.metadata | xargs grep -rn visibleName"'
+        cmd = 'ssh remarkable "grep -lnr DocumentType {}/*.metadata | xargs grep -rn visibleName"'.format(self.remarkable_directory)
         hash_file_list = (subprocess
                     .check_output(cmd, shell=True)
                     .decode('utf-8'))                    
@@ -141,7 +141,7 @@ class Remarkable:
             if y[0]!="":
                 hash_file_dict[y[0]]=y[-1].strip()[1:-1]
 
-        cmd = 'ssh remarkable "grep -lnr DocumentType /home/root/.local/share/remarkable/xochitl/*.metadata | xargs grep -rn parent"'
+        cmd = 'ssh remarkable "grep -lnr DocumentType {}/*.metadata | xargs grep -rn parent"'.format(self.remarkable_directory)
         parent_file_list = (subprocess
                     .check_output(cmd, shell=True)
                     .decode('utf-8'))                    
